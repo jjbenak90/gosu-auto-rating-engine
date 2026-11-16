@@ -22,9 +22,12 @@ class ProductionAutoRatingEngine {
 
     var totalAnnualPremium = collisionPremium + compPremium + liabilityPremium
 
+    // Avoid nested escaped quotes inside string interpolation
+    var formattedClassFactor = String.format("%.2f", {classFactor})
+
     print("=== ACTUARIAL RATING WORKSHEET ===")
-    print("Territory: ${risk.TerritoryCode} | Class Factor: ${classFactor} | MVR Surcharge: ${mvrFactor}")
-    print("Collision: \$${Math.round(collisionPremium)} | Comp: \$${Math.round(compPremium)} | Liability: \$${Math.round(liabilityPremium)}")
+    print("Territory: ${risk.TerritoryCode} | Class Factor: ${formattedClassFactor} | MVR Surcharge: ${mvrFactor}")
+    print("Collision: $" + Math.round(collisionPremium) + " | Comp: $" + Math.round(compPremium) + " | Liability: $" + Math.round(liabilityPremium))
     print("-----------------------------------")
 
     return Math.round(totalAnnualPremium * 100.0) / 100.0
