@@ -1,3 +1,3 @@
-uses rateengine.test.AutoRatingEngineTest
+uses test.AutoRatingEngineTest
 
 AutoRatingEngineTest.runAllTests()

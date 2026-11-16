@@ -1,5 +1,5 @@
-uses rateengine.db.DatabaseManager
-uses rateengine.model.PolicyRiskProfile
+uses db.DatabaseManager
+uses model.PolicyRiskProfile
 uses java.sql.DriverManager
 
 print("=== STARTING COMPLETE ROBUSTNESS & SECURITY TEST SUITE ===")

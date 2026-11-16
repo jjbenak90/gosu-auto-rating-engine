@@ -1,5 +1,5 @@
-uses rateengine.model.PolicyRiskProfile
-uses rateengine.ProductionAutoRatingEngine
+uses model.PolicyRiskProfile
+uses ProductionAutoRatingEngine
 
 var profile = new PolicyRiskProfile()
 profile.TerritoryCode = "68123"

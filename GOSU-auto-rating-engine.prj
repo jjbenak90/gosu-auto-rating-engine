@@ -2,12 +2,10 @@
   "Title": "Gosu Experiment",
   "Version": 2,
   "Name": "GOSU-auto-rating-engine",
-  "ActiveTab": "src/main/gosu/scratch/TestDB.gsp",
+  "ActiveTab": "src/main/gosu/rateengine/db/DatabaseManager.gs",
   "Tabs": [
     "src/main/gosu/scratch/RunMe.gsp",
-    "src/main/gosu/rateengine/tables/RatingFactorTables.gs",
     "src/main/gosu/rateengine/model/PolicyRiskProfile.gs",
-    "src/main/gosu/rateengine/tables/ActuarialRatingTables.gs",
     "src/main/gosu/rateengine/ProductionAutoRatingEngine.gs",
     "src/main/gosu/rateengine/test/AutoRatingEngineTest.gs",
     "src/main/gosu/scratch/RunTests.gsp",
