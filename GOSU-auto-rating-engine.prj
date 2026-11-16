@@ -2,7 +2,7 @@
   "Title": "Gosu Experiment",
   "Version": 2,
   "Name": "GOSU-auto-rating-engine",
-  "ActiveTab": "src/main/gosu/rateengine/ProductionAutoRatingEngine.gs",
+  "ActiveTab": "src/main/gosu/scratch/TestDB.gsp",
   "Tabs": [
     "src/main/gosu/scratch/RunMe.gsp",
     "src/main/gosu/rateengine/tables/RatingFactorTables.gs",
@@ -10,15 +10,31 @@
     "src/main/gosu/rateengine/tables/ActuarialRatingTables.gs",
     "src/main/gosu/rateengine/ProductionAutoRatingEngine.gs",
     "src/main/gosu/rateengine/test/AutoRatingEngineTest.gs",
-    "src/main/gosu/scratch/RunTests.gsp"
+    "src/main/gosu/scratch/RunTests.gsp",
+    "src/main/gosu/rateengine/db/DatabaseManager.gs",
+    "src/main/gosu/scratch/TestDB.gsp"
   ],
   "SourcePath": [
-    "src/main/gosu"
+    "src/main/gosu",
+    "C:/Users/jjbenak/Gosu/gosu-1.14.16/lib/postgresql-42.2.27.jre6.jar"
   ],
   "BackingSource": [
     "C:/Program Files/Amazon Corretto/jdk1.8.0_512/src.zip"
   ],
   "RunConfigs": [
+    {
+      "$construct_type": "editor.run.ProgramRunConfig",
+      "_params": {
+        "$construct_type": "editor.run.ProgramRunConfigParameters",
+        "_name": "TestDB",
+        "_fqn": "scratch.TestDB",
+        "_vmArgs": null,
+        "_progArgs": null,
+        "_workingDir": null,
+        "_jre": null,
+        "_bJre": 0
+      }
+    },
     {
       "$construct_type": "editor.run.ProgramRunConfig",
       "_params": {
@@ -46,7 +62,7 @@
       }
     }
   ],
-  "MruRunConfig": "RunTests",
+  "MruRunConfig": "TestDB",
   "Settings": [
     {
       "$construct_type": "editor.settings.CompilerSettings",
