@@ -1,17 +1,17 @@
-uses rateengine.model.RiskProfile
-uses rateengine.AutoRatingEngine
+uses rateengine.model.PolicyRiskProfile
+uses rateengine.ProductionAutoRatingEngine
 
-// 1. Create a sample driver risk profile
-// Parameters: age, vehicle value, safety rating, at-fault accidents
-var sampleDriver = new RiskProfile(28, 35000.00, 85, 0)
+var profile = new PolicyRiskProfile()
+profile.TerritoryCode = "68123"
+profile.DriverAge = 24
+profile.Gender = "M"
+profile.CompletedDriverTraining = true
+profile.VehicleSymbol = 12
+profile.VehicleValue = 32000.00
+profile.MajorViolations = 0
+profile.MinorViolations = 1
+profile.AtFaultAccidents = 0
+profile.CoverageLimit = 100000
 
-// 2. Calculate the annualized auto insurance premium
-var calculatedPremium = AutoRatingEngine.calculatePremium(sampleDriver)
-
-// 3. Output results to the console
-print("--- Auto Insurance Rating Engine Test ---")
-print("Driver Age: " + sampleDriver.DriverAge)
-print("Vehicle Value: $" + sampleDriver.VehicleValue)
-print("At-Fault Accidents: " + sampleDriver.AtFaultAccidents)
-print("-----------------------------------------")
-print("Final Calculated Premium: $" + calculatedPremium)
+var totalPremium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
+print("Final Annual Policy Premium: \$${totalPremium}")
