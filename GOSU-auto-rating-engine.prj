@@ -5,9 +5,10 @@
   "ActiveTab": "src/main/gosu/scratch/RunMe.gsp",
   "Tabs": [
     "src/main/gosu/scratch/RunMe.gsp",
-    "src/main/gosu/rateengine/model/RiskProfile.gs",
     "src/main/gosu/rateengine/tables/RatingFactorTables.gs",
-    "src/main/gosu/rateengine/AutoRatingEngine.gs"
+    "src/main/gosu/rateengine/model/PolicyRiskProfile.gs",
+    "src/main/gosu/rateengine/tables/ActuarialRatingTables.gs",
+    "src/main/gosu/rateengine/ProductionAutoRatingEngine.gs"
   ],
   "SourcePath": [
     "src/main/gosu"
