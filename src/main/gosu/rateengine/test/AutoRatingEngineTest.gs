@@ -9,6 +9,9 @@ class AutoRatingEngineTest {
     print("=== RUNNING AUTO RATING ENGINE TESTS ===")
     testStandardPolicyRating()
     testYouthfulHighRiskDriver()
+    testSeniorDriverDiscount()
+    testTerritoryFallbackLookup()
+    testMultipleMvrViolations()
     print("=== ALL TESTS PASSED SUCCESSFULLY ===")
   }
 
@@ -51,5 +54,67 @@ class AutoRatingEngineTest {
       throw new RuntimeException("testYouthfulHighRiskDriver failed: expected premium > 3000.00, got ${premium}")
     }
     print("[PASS] testYouthfulHighRiskDriver")
+  }
+  
+  public static function testSeniorDriverDiscount() {
+    var profile = new PolicyRiskProfile()
+    profile.TerritoryCode = "68046" // Suburban Papillion
+    profile.DriverAge = 70
+    profile.Gender = "F"
+    profile.CompletedDriverTraining = false
+    profile.VehicleSymbol = 8
+    profile.VehicleValue = 24000.00
+    profile.MajorViolations = 0
+    profile.MinorViolations = 0
+    profile.AtFaultAccidents = 0
+    profile.CoverageLimit = 50000
+
+    var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
+    // Senior factor is 1.05, suburban base is lower (280)
+    if (premium > 1500.00) {
+      throw new RuntimeException("testSeniorDriverDiscount failed: expected lower premium for clean senior driver, got ${premium}")
+    }
+    print("[PASS] testSeniorDriverDiscount")
+  }
+
+  public static function testTerritoryFallbackLookup() {
+    var profile = new PolicyRiskProfile()
+    profile.TerritoryCode = "99999" // Non-existent territory triggers fallback default (300.00 base)
+    profile.DriverAge = 35
+    profile.Gender = "M"
+    profile.CompletedDriverTraining = false
+    profile.VehicleSymbol = 10
+    profile.VehicleValue = 30000.00
+    profile.MajorViolations = 0
+    profile.MinorViolations = 0
+    profile.AtFaultAccidents = 0
+    profile.CoverageLimit = 100000
+
+    var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
+    if (premium <= 0) {
+      throw new RuntimeException("testTerritoryFallbackLookup failed: fallback base rate calculation failed")
+    }
+    print("[PASS] testTerritoryFallbackLookup")
+  }
+
+  public static function testMultipleMvrViolations() {
+    var profile = new PolicyRiskProfile()
+    profile.TerritoryCode = "68123"
+    profile.DriverAge = 30
+    profile.Gender = "M"
+    profile.CompletedDriverTraining = false
+    profile.VehicleSymbol = 15
+    profile.VehicleValue = 35000.00
+    profile.MajorViolations = 2 // 2 * 0.50 = +1.00 surcharge factor
+    profile.MinorViolations = 3 // 3 * 0.15 = +0.45 surcharge factor
+    profile.AtFaultAccidents = 0
+    profile.CoverageLimit = 100000
+
+    var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
+    // Heavy MVR surcharges should significantly drive up the final cost
+    if (premium < 2000.00) {
+      throw new RuntimeException("testMultipleMvrViolations failed: MVR surcharges not properly reflected, got ${premium}")
+    }
+    print("[PASS] testMultipleMvrViolations")
   }
 }
