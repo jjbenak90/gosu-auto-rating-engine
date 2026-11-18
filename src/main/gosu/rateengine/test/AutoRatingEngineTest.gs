@@ -2,6 +2,7 @@ package rateengine.test
 
 uses rateengine.model.PolicyRiskProfile
 uses rateengine.ProductionAutoRatingEngine
+uses java.math.BigDecimal
 
 class AutoRatingEngineTest {
 
@@ -12,6 +13,8 @@ class AutoRatingEngineTest {
     testSeniorDriverDiscount()
     testTerritoryFallbackLookup()
     testMultipleMvrViolations()
+    testEnhancementPropertiesAndTiers()
+    testBlockCustomModifiers()
     print("=== ALL TESTS PASSED SUCCESSFULLY ===")
   }
 
@@ -116,5 +119,54 @@ class AutoRatingEngineTest {
       throw new RuntimeException("testMultipleMvrViolations failed: MVR surcharges not properly reflected, got ${premium}")
     }
     print("[PASS] testMultipleMvrViolations")
+  }
+
+  public static function testEnhancementPropertiesAndTiers() {
+    var profile = new PolicyRiskProfile()
+    profile.DriverAge = 19
+    profile.MajorViolations = 1
+    profile.MinorViolations = 1
+    profile.AtFaultAccidents = 1
+    profile.VehicleSymbol = 10
+    profile.TerritoryCode = "68123"
+
+    if (profile.TotalViolations != 3) {
+      throw new RuntimeException("TotalViolations enhancement failed: expected 3, got ${profile.TotalViolations}")
+    }
+
+    if (not profile.IsHighRiskDriver) {
+      throw new RuntimeException("IsHighRiskDriver enhancement failed: expected true")
+    }
+
+    if (profile.UnderwritingTier != "TIER_3_HIGH_RISK") {
+      throw new RuntimeException("UnderwritingTier enhancement failed: expected TIER_3_HIGH_RISK, got ${profile.UnderwritingTier}")
+    }
+
+    var riskScore = profile.ActuarialRiskScore
+    if (riskScore <= 0.0) {
+      throw new RuntimeException("ActuarialRiskScore calculation failed")
+    }
+
+    if (not profile.validateProfileData()) {
+      throw new RuntimeException("validateProfileData failed for valid profile")
+    }
+
+    print("[PASS] testEnhancementPropertiesAndTiers")
+  }
+
+  public static function testBlockCustomModifiers() {
+    var profile = new PolicyRiskProfile()
+    profile.DriverAge = 30
+    profile.MajorViolations = 0
+
+    var customModifier = profile.evaluateCustomModifier(\ p ->
+        p.DriverAge > 25 ? new BigDecimal("0.90") : new BigDecimal("1.20")
+    )
+
+    if (customModifier.compareTo(new BigDecimal("0.90")) != 0) {
+      throw new RuntimeException("Block custom modifier test failed: expected 0.90, got ${customModifier}")
+    }
+
+    print("[PASS] testBlockCustomModifiers")
   }
 }
