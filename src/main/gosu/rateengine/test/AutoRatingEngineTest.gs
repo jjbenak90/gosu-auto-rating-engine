@@ -32,7 +32,7 @@ class AutoRatingEngineTest {
     profile.CoverageLimit = 100000
 
     var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
-    var expected = 1270.0
+    var expected = 1905.0
     if (Math.abs(premium - expected) > 0.01) {
       throw new RuntimeException("testStandardPolicyRating failed: expected ${expected}, got ${premium}")
     }

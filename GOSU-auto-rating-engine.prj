@@ -2,7 +2,7 @@
   "Title": "Gosu Experiment",
   "Version": 2,
   "Name": "GOSU-auto-rating-engine",
-  "ActiveTab": "src/main/gosu/scratch/RunMe.gsp",
+  "ActiveTab": "src/main/gosu/rateengine/model/PolicyRiskProfileEnhancement.gsx",
   "Tabs": [
     "src/main/gosu/scratch/RunMe.gsp",
     "src/main/gosu/rateengine/model/PolicyRiskProfile.gs",
@@ -10,7 +10,8 @@
     "src/main/gosu/rateengine/test/AutoRatingEngineTest.gs",
     "src/main/gosu/scratch/RunTests.gsp",
     "src/main/gosu/rateengine/db/DatabaseManager.gs",
-    "src/main/gosu/scratch/TestDB.gsp"
+    "src/main/gosu/scratch/TestDB.gsp",
+    "src/main/gosu/rateengine/model/PolicyRiskProfileEnhancement.gsx"
   ],
   "SourcePath": [
     "src/main/gosu",
@@ -24,8 +25,8 @@
       "$construct_type": "editor.run.ProgramRunConfig",
       "_params": {
         "$construct_type": "editor.run.ProgramRunConfigParameters",
-        "_name": "RunTests",
-        "_fqn": "scratch.RunTests",
+        "_name": "AutoRatingEngineTest",
+        "_fqn": "rateengine.test.AutoRatingEngineTest",
         "_vmArgs": null,
         "_progArgs": null,
         "_workingDir": null,
@@ -50,6 +51,19 @@
       "$construct_type": "editor.run.ProgramRunConfig",
       "_params": {
         "$construct_type": "editor.run.ProgramRunConfigParameters",
+        "_name": "RunTests",
+        "_fqn": "scratch.RunTests",
+        "_vmArgs": null,
+        "_progArgs": null,
+        "_workingDir": null,
+        "_jre": null,
+        "_bJre": 0
+      }
+    },
+    {
+      "$construct_type": "editor.run.ProgramRunConfig",
+      "_params": {
+        "$construct_type": "editor.run.ProgramRunConfigParameters",
         "_name": "RunMe",
         "_fqn": "scratch.RunMe",
         "_vmArgs": null,
@@ -60,7 +74,7 @@
       }
     }
   ],
-  "MruRunConfig": "RunTests",
+  "MruRunConfig": "AutoRatingEngineTest",
   "Settings": [
     {
       "$construct_type": "editor.settings.CompilerSettings",
