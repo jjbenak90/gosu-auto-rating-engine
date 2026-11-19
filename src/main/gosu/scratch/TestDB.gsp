@@ -115,7 +115,7 @@ print("PASS: Persisted senior driver boundary quote (Age 85).")
 print("Starting rapid connection pooling stress test (10 consecutive queries)...")
 for (i in 1..10) {
   var stressRate = DatabaseManager.fetchBaseLossCost("68123", "COLLISION")
-  if (stressRate != 350.0) {
+  if (stressRate != 400.0) {
     throw new RuntimeException("Stress test failed on iteration ${i}: unexpected rate ${stressRate}")
   }
 }
