@@ -1,5 +1,7 @@
 package rateengine.test
 
+uses rateengine.db.DatabaseManager
+uses rateengine.rules.SurchargeEvaluator
 uses rateengine.model.PolicyRiskProfile
 uses rateengine.ProductionAutoRatingEngine
 uses java.math.BigDecimal
@@ -168,5 +170,36 @@ class AutoRatingEngineTest {
     }
 
     print("[PASS] testBlockCustomModifiers")
+  }
+  
+  public static function testEnhancementsAndBlocks() {
+    var profile = new PolicyRiskProfile()
+    profile.TerritoryCode = "68123"
+    profile.DriverAge = 19
+    profile.MajorViolations = 1
+    profile.MinorViolations = 1
+    profile.AtFaultAccidents = 1
+    profile.VehicleSymbol = 10
+
+    if (profile.TotalViolations != 3) {
+      throw new RuntimeException("Enhancement test failed: expected 3 total violations, got ${profile.TotalViolations}")
+    }
+
+    if (not profile.IsHighRiskDriver) {
+      throw new RuntimeException("Enhancement test failed: expected high risk driver flag true")
+    }
+
+    if (profile.UnderwritingTier != "TIER_3_HIGH_RISK") {
+      throw new RuntimeException("Tier test failed: expected TIER_3_HIGH_RISK, got ${profile.UnderwritingTier}")
+    }
+
+    var expectedMultiplier = DatabaseManager.fetchSystemParameter("HIGH_RISK_SURCHARGE_MULTIPLIER")
+    var blockRule = SurchargeEvaluator.getDefaultSurchargeBlock()
+    var factor = SurchargeEvaluator.evaluateDynamicSurcharge(profile, blockRule)
+
+    if (Math.abs(factor - expectedMultiplier) > 0.001) {
+      throw new RuntimeException("Block rule test failed: expected ${expectedMultiplier} surcharge factor, got ${factor}")
+    }
+    print("[PASS] testEnhancementsAndBlocks")
   }
 }
