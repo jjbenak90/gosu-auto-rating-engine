@@ -3,6 +3,7 @@ package rateengine.test
 uses rateengine.db.DatabaseManager
 uses rateengine.rules.SurchargeEvaluator
 uses rateengine.model.PolicyRiskProfile
+uses rateengine.model.RatingWorksheet
 uses rateengine.ProductionAutoRatingEngine
 uses java.math.BigDecimal
 
@@ -17,6 +18,8 @@ class AutoRatingEngineTest {
     testMultipleMvrViolations()
     testEnhancementPropertiesAndTiers()
     testBlockCustomModifiers()
+    testEnhancementsAndBlocks()
+    testRatingWorksheetAuditTrace()
     print("=== ALL TESTS PASSED SUCCESSFULLY ===")
   }
 
@@ -197,9 +200,46 @@ class AutoRatingEngineTest {
     var blockRule = SurchargeEvaluator.getDefaultSurchargeBlock()
     var factor = SurchargeEvaluator.evaluateDynamicSurcharge(profile, blockRule)
 
-    if (Math.abs(factor - expectedMultiplier) > 0.001) {
+    if (Math.abs(factor.doubleValue() - expectedMultiplier) > 0.001) {
       throw new RuntimeException("Block rule test failed: expected ${expectedMultiplier} surcharge factor, got ${factor}")
     }
     print("[PASS] testEnhancementsAndBlocks")
+  }
+
+  public static function testRatingWorksheetAuditTrace() {
+    var profile = new PolicyRiskProfile()
+    profile.TerritoryCode = "68123"
+    profile.DriverAge = 24
+    profile.Gender = "M"
+    profile.CompletedDriverTraining = true
+    profile.VehicleSymbol = 12
+    profile.VehicleValue = 32000.00
+    profile.MajorViolations = 0
+    profile.MinorViolations = 1
+    profile.AtFaultAccidents = 0
+    profile.CoverageLimit = 100000
+
+    var worksheet : RatingWorksheet = ProductionAutoRatingEngine.ratePolicy(profile)
+    worksheet.printWorksheet()
+
+    if (worksheet.Steps.size() != 6) {
+      throw new RuntimeException("Worksheet test failed: expected 6 rating steps, got ${worksheet.Steps.size()}")
+    }
+
+    var collisionStep = worksheet.getStep("COLLISION_BASE")
+    if (collisionStep == null or collisionStep.RunningTotal.compareTo(new BigDecimal("350.0")) != 0) {
+      throw new RuntimeException("Worksheet collision base step failed: expected 350.0, got ${collisionStep?.RunningTotal}")
+    }
+
+    var multiplierStep = worksheet.getStep("DYNAMIC_TIER_MULTIPLIER")
+    if (multiplierStep == null or multiplierStep.Operand.compareTo(new BigDecimal("1.5000")) != 0) {
+      throw new RuntimeException("Worksheet multiplier step failed: expected 1.5000, got ${multiplierStep?.Operand}")
+    }
+
+    if (worksheet.FinalPremium.compareTo(new BigDecimal("1905.00")) != 0) {
+      throw new RuntimeException("Worksheet final premium failed: expected 1905.00, got ${worksheet.FinalPremium}")
+    }
+
+    print("[PASS] testRatingWorksheetAuditTrace")
   }
 }

@@ -25,6 +25,19 @@
       "$construct_type": "editor.run.ProgramRunConfig",
       "_params": {
         "$construct_type": "editor.run.ProgramRunConfigParameters",
+        "_name": "AutoRatingEngineTest",
+        "_fqn": "rateengine.test.AutoRatingEngineTest",
+        "_vmArgs": null,
+        "_progArgs": null,
+        "_workingDir": null,
+        "_jre": null,
+        "_bJre": 0
+      }
+    },
+    {
+      "$construct_type": "editor.run.ProgramRunConfig",
+      "_params": {
+        "$construct_type": "editor.run.ProgramRunConfigParameters",
         "_name": "TestDB",
         "_fqn": "scratch.TestDB",
         "_vmArgs": null,
@@ -59,22 +72,9 @@
         "_jre": null,
         "_bJre": 0
       }
-    },
-    {
-      "$construct_type": "editor.run.ProgramRunConfig",
-      "_params": {
-        "$construct_type": "editor.run.ProgramRunConfigParameters",
-        "_name": "AutoRatingEngineTest",
-        "_fqn": "rateengine.test.AutoRatingEngineTest",
-        "_vmArgs": null,
-        "_progArgs": null,
-        "_workingDir": null,
-        "_jre": null,
-        "_bJre": 0
-      }
     }
   ],
-  "MruRunConfig": "TestDB",
+  "MruRunConfig": "AutoRatingEngineTest",
   "Settings": [
     {
       "$construct_type": "editor.settings.CompilerSettings",
