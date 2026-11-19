@@ -1,254 +1,389 @@
 package rateengine.db
 
-uses java.sql.DriverManager
-uses java.sql.Connection
-uses java.sql.PreparedStatement
-uses java.sql.ResultSet
 uses rateengine.model.PolicyRiskProfile
 uses java.math.BigDecimal
+uses java.sql.Connection
+uses java.sql.DriverManager
+uses java.sql.PreparedStatement
+uses java.sql.ResultSet
+uses java.sql.SQLException
+uses java.sql.Timestamp
+uses java.util.Date
+uses java.util.Properties
 
 class DatabaseManager {
 
-  private static final var DB_URL = "jdbc:postgresql://localhost:5432/auto_rating_db"
-  private static final var DB_USER = "postgres"
-  private static final var DB_PASSWORD = "enchanter90!"
+  private static final var DB_URL : String = "jdbc:postgresql://localhost:5432/auto_rating_db"
+  private static final var DB_USER : String = "postgres"
+  private static final var DB_PASSWORD : String = "enchanter90!"
+
+  private static final var PARAM_DEFAULT_BASE_RATE : String = "DEFAULT_BASE_RATE"
+  private static final var PARAM_DEFAULT_FACTOR : String = "DEFAULT_FACTOR"
+  private static final var PARAM_DEFAULT_SURCHARGE : String = "DEFAULT_SURCHARGE"
+  private static final var PARAM_HIGH_RISK_SURCHARGE_MULTIPLIER : String = "HIGH_RISK_SURCHARGE_MULTIPLIER"
+  private static final var PARAM_STANDARD_SURCHARGE_MULTIPLIER : String = "STANDARD_SURCHARGE_MULTIPLIER"
+  private static final var PARAM_PREFERRED_SURCHARGE_MULTIPLIER : String = "PREFERRED_SURCHARGE_MULTIPLIER"
+
+  private static final var DEFAULT_FALLBACK_VALUE : double = 0.0
+  private static final var DEFAULT_UNIT_FACTOR : double = 1.0
+  private static final var MIN_ELIGIBLE_DRIVER_AGE : int = 16
+  private static final var MAX_ELIGIBLE_DRIVER_AGE : int = 105
+  private static final var PREFERRED_MIN_AGE : int = 25
+  private static final var HIGH_RISK_UNDERAGE_THRESHOLD : int = 21
+  private static final var HIGH_RISK_MAX_ACCIDENTS : int = 1
+  private static final var HIGH_RISK_MAX_VIOLATIONS : int = 2
+  private static final var MIN_INCIDENT_COUNT : int = 0
+  private static final var MIN_VEHICLE_SYMBOL : int = 1
+  private static final var INITIAL_RISK_SCORE : double = 0.0
+  private static final var UNDERAGE_SCORE_THRESHOLD : int = 25
+  private static final var UNDERAGE_SCORE_WEIGHT : double = 4.0
+  private static final var MAJOR_VIOLATION_SCORE_WEIGHT : double = 25.0
+  private static final var MINOR_VIOLATION_SCORE_WEIGHT : double = 10.0
+  private static final var ACCIDENT_SCORE_WEIGHT : double = 20.0
+  private static final var VEHICLE_SYMBOL_SCORE_WEIGHT : double = 1.5
+
+  private static final var TIER_PREFERRED : String = "TIER_1_PREFERRED"
+  private static final var TIER_STANDARD : String = "TIER_2_STANDARD"
+  private static final var TIER_HIGH_RISK : String = "TIER_3_HIGH_RISK"
+
+  private static final var SQL_PARAM_INDEX : int = 1
+  private static final var SQL_TERRITORY_INDEX : int = 1
+  private static final var SQL_COVERAGE_INDEX : int = 2
+  private static final var SQL_AGE_MIN_INDEX : int = 1
+  private static final var SQL_AGE_MAX_INDEX : int = 2
+  private static final var SQL_VIOLATION_TYPE_INDEX : int = 1
+  private static final var SQL_SYMBOL_INDEX : int = 1
+
+  private static final var AUDIT_TERRITORY_INDEX : int = 1
+  private static final var AUDIT_AGE_INDEX : int = 2
+  private static final var AUDIT_SYMBOL_INDEX : int = 3
+  private static final var AUDIT_MAJOR_VIOLATIONS_INDEX : int = 4
+  private static final var AUDIT_MINOR_VIOLATIONS_INDEX : int = 5
+  private static final var AUDIT_TIER_INDEX : int = 6
+  private static final var AUDIT_PREMIUM_INDEX : int = 7
+  private static final var AUDIT_CREATED_AT_INDEX : int = 8
 
   public static function getConnection() : Connection {
-    Class.forName("org.postgresql.Driver")
-    return DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)
+    try {
+      Class.forName("org.postgresql.Driver")
+      var props = new Properties()
+      props.setProperty("user", DB_USER)
+      props.setProperty("password", DB_PASSWORD)
+      return DriverManager.getConnection(DB_URL, props)
+    } catch (e : ClassNotFoundException) {
+      throw new RuntimeException("PostgreSQL JDBC Driver not found on classpath", e)
+    } catch (e : SQLException) {
+      throw new RuntimeException("Failed to connect to PostgreSQL database at ${DB_URL}", e)
+    }
   }
 
-  /**
-   * Fetches configuration parameters dynamically from the system_parameters table (Zero Magic Numbers).
-   */
   public static function fetchSystemParameter(paramKey : String) : double {
+    return fetchSystemParameter(paramKey, new Date())
+  }
+
+  public static function fetchSystemParameter(paramKey : String, ratingDate : Date) : double {
+    var effectiveDate = ratingDate != null ? ratingDate : new Date()
     var conn : Connection = null
     var stmt : PreparedStatement = null
     var rs : ResultSet = null
-    var value = 0.0
-    
+    var value = DEFAULT_FALLBACK_VALUE
+
     try {
       conn = getConnection()
-      stmt = conn.prepareStatement("SELECT param_value FROM system_parameters WHERE param_key = ?")
-      stmt.setString(1, paramKey)
+      var sql = "SELECT param_value FROM system_parameters " +
+          "WHERE param_key = ? " +
+          "AND effective_date <= ? " +
+          "AND (expiration_date IS NULL OR ? < expiration_date) " +
+          "ORDER BY effective_date DESC LIMIT 1"
+      stmt = conn.prepareStatement(sql)
+      stmt.setString(SQL_PARAM_INDEX, paramKey)
+      var sqlDate = new java.sql.Date(effectiveDate.Time)
+      stmt.setDate(SQL_PARAM_INDEX + 1, sqlDate)
+      stmt.setDate(SQL_PARAM_INDEX + 2, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         value = rs.getDouble("param_value")
       }
     } catch (e : Exception) {
-      print("[DB ERROR] Failed to fetch system parameter ${paramKey}: " + e.getMessage())
+      print("[DB ERROR] Failed to fetch system parameter ${paramKey} for date ${effectiveDate}: " + e.getMessage())
     } finally {
-      if (rs != null) try { rs.close() } catch (e : Exception) {}
-      if (stmt != null) try { stmt.close() } catch (e : Exception) {}
-      if (conn != null) try { conn.close() } catch (e : Exception) {}
+      closeQuietly(rs, stmt, conn)
     }
-    
+
     return value
   }
 
   public static function fetchBaseLossCost(territoryCode : String, coverageType : String) : double {
+    return fetchBaseLossCost(territoryCode, coverageType, new Date())
+  }
+
+  public static function fetchBaseLossCost(territoryCode : String, coverageType : String, ratingDate : Date) : double {
+    var effectiveDate = ratingDate != null ? ratingDate : new Date()
     var conn : Connection = null
     var stmt : PreparedStatement = null
     var rs : ResultSet = null
-    var rate = fetchSystemParameter("DEFAULT_BASE_RATE")
-    
+    var rate = DEFAULT_FALLBACK_VALUE
+
     try {
       conn = getConnection()
-      stmt = conn.prepareStatement("SELECT base_loss_cost FROM territory_base_rates WHERE territory_code = ? AND coverage_type = ?")
-      stmt.setString(1, territoryCode)
-      stmt.setString(2, coverageType)
-      
+      var sql = "SELECT base_loss_cost FROM territory_base_rates " +
+          "WHERE territory_code = ? AND coverage_type = ? " +
+          "AND effective_date <= ? " +
+          "AND (expiration_date IS NULL OR ? < expiration_date) " +
+          "ORDER BY effective_date DESC LIMIT 1"
+      stmt = conn.prepareStatement(sql)
+      stmt.setString(SQL_TERRITORY_INDEX, territoryCode)
+      stmt.setString(SQL_COVERAGE_INDEX, coverageType)
+      var sqlDate = new java.sql.Date(effectiveDate.Time)
+      stmt.setDate(SQL_COVERAGE_INDEX + 1, sqlDate)
+      stmt.setDate(SQL_COVERAGE_INDEX + 2, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         rate = rs.getDouble("base_loss_cost")
+      } else {
+        rate = fetchSystemParameter(PARAM_DEFAULT_BASE_RATE, effectiveDate)
       }
     } catch (e : Exception) {
-      print("[DB ERROR] Failed to fetch base loss cost: " + e.getMessage())
+      print("[DB ERROR] Failed to fetch base loss cost for ${territoryCode}/${coverageType} on ${effectiveDate}: " + e.getMessage())
     } finally {
-      if (rs != null) try { rs.close() } catch (e : Exception) {}
-      if (stmt != null) try { stmt.close() } catch (e : Exception) {}
-      if (conn != null) try { conn.close() } catch (e : Exception) {}
+      closeQuietly(rs, stmt, conn)
     }
-    
+
     return rate
   }
 
-  public static function persistQuote(profile : PolicyRiskProfile, totalPremium : double) {
-    var conn : Connection = null
-    var stmt : PreparedStatement = null
-    
-    try {
-      conn = getConnection()
-      var sql = "INSERT INTO quote_history (territory_code, driver_age, gender, driver_training, vehicle_symbol, vehicle_value, major_violations, minor_violations, at_fault_accidents, coverage_limit, total_premium) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      stmt = conn.prepareStatement(sql)
-      
-      stmt.setString(1, profile.TerritoryCode)
-      stmt.setInt(2, profile.DriverAge)
-      stmt.setString(3, profile.Gender)
-      stmt.setBoolean(4, profile.CompletedDriverTraining)
-      stmt.setInt(5, profile.VehicleSymbol)
-      stmt.setDouble(6, profile.VehicleValue)
-      stmt.setInt(7, profile.MajorViolations)
-      stmt.setInt(8, profile.MinorViolations)
-      stmt.setInt(9, profile.AtFaultAccidents)
-      stmt.setInt(10, profile.CoverageLimit)
-      stmt.setDouble(11, totalPremium)
-      
-      stmt.executeUpdate()
-      print("[DB] Quote successfully persisted to PostgreSQL audit log.")
-    } catch (e : Exception) {
-      print("[DB ERROR] Failed to persist quote audit: " + e.getMessage())
-    } finally {
-      if (stmt != null) try { stmt.close() } catch (e : Exception) {}
-      if (conn != null) try { conn.close() } catch (e : Exception) {}
-    }
+  public static function fetchAgeFactor(age : int) : double {
+    return fetchAgeFactor(age, new Date())
   }
 
-  public static function fetchAgeFactor(age : int) : double {
+  public static function fetchAgeFactor(age : int, ratingDate : Date) : double {
+    var effectiveDate = ratingDate != null ? ratingDate : new Date()
     var conn : Connection = null
     var stmt : PreparedStatement = null
     var rs : ResultSet = null
-    var factor = fetchSystemParameter("DEFAULT_FACTOR")
-    
+    var factor = DEFAULT_UNIT_FACTOR
+
     try {
       conn = getConnection()
-      stmt = conn.prepareStatement("SELECT factor FROM age_factors WHERE ? BETWEEN min_age AND max_age")
-      stmt.setInt(1, age)
+      var sql = "SELECT factor FROM age_factors " +
+          "WHERE min_age <= ? AND max_age >= ? " +
+          "AND effective_date <= ? " +
+          "AND (expiration_date IS NULL OR ? < expiration_date) " +
+          "ORDER BY effective_date DESC LIMIT 1"
+      stmt = conn.prepareStatement(sql)
+      stmt.setInt(SQL_AGE_MIN_INDEX, age)
+      stmt.setInt(SQL_AGE_MAX_INDEX, age)
+      var sqlDate = new java.sql.Date(effectiveDate.Time)
+      stmt.setDate(SQL_AGE_MAX_INDEX + 1, sqlDate)
+      stmt.setDate(SQL_AGE_MAX_INDEX + 2, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         factor = rs.getDouble("factor")
+      } else {
+        factor = fetchSystemParameter(PARAM_DEFAULT_FACTOR, effectiveDate)
       }
     } catch (e : Exception) {
-      print("[DB ERROR] Failed to fetch age factor: " + e.getMessage())
+      print("[DB ERROR] Failed to fetch age factor for age ${age} on ${effectiveDate}: " + e.getMessage())
     } finally {
-      if (rs != null) try { rs.close() } catch (e : Exception) {}
-      if (stmt != null) try { stmt.close() } catch (e : Exception) {}
-      if (conn != null) try { conn.close() } catch (e : Exception) {}
+      closeQuietly(rs, stmt, conn)
     }
-    
+
     return factor
   }
 
-  public static function fetchViolationSurcharge(type : String) : double {
+  public static function fetchViolationSurcharge(violationType : String) : double {
+    return fetchViolationSurcharge(violationType, new Date())
+  }
+
+  public static function fetchViolationSurcharge(violationType : String, ratingDate : Date) : double {
+    var effectiveDate = ratingDate != null ? ratingDate : new Date()
     var conn : Connection = null
     var stmt : PreparedStatement = null
     var rs : ResultSet = null
-    var surcharge = fetchSystemParameter("DEFAULT_SURCHARGE")
-    
+    var surcharge = DEFAULT_FALLBACK_VALUE
+
     try {
       conn = getConnection()
-      stmt = conn.prepareStatement("SELECT surcharge_amount FROM violation_factors WHERE violation_type = ?")
-      stmt.setString(1, type)
+      var sql = "SELECT surcharge_amount FROM violation_factors " +
+          "WHERE violation_type = ? " +
+          "AND effective_date <= ? " +
+          "AND (expiration_date IS NULL OR ? < expiration_date) " +
+          "ORDER BY effective_date DESC LIMIT 1"
+      stmt = conn.prepareStatement(sql)
+      stmt.setString(SQL_VIOLATION_TYPE_INDEX, violationType)
+      var sqlDate = new java.sql.Date(effectiveDate.Time)
+      stmt.setDate(SQL_VIOLATION_TYPE_INDEX + 1, sqlDate)
+      stmt.setDate(SQL_VIOLATION_TYPE_INDEX + 2, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         surcharge = rs.getDouble("surcharge_amount")
+      } else {
+        surcharge = fetchSystemParameter(PARAM_DEFAULT_SURCHARGE, effectiveDate)
       }
     } catch (e : Exception) {
-      print("[DB ERROR] Failed to fetch violation surcharge: " + e.getMessage())
+      print("[DB ERROR] Failed to fetch violation surcharge for ${violationType} on ${effectiveDate}: " + e.getMessage())
     } finally {
-      if (rs != null) try { rs.close() } catch (e : Exception) {}
-      if (stmt != null) try { stmt.close() } catch (e : Exception) {}
-      if (conn != null) try { conn.close() } catch (e : Exception) {}
+      closeQuietly(rs, stmt, conn)
     }
-    
+
     return surcharge
   }
 
   public static function fetchVehicleSymbolFactor(symbol : int) : double {
+    return fetchVehicleSymbolFactor(symbol, new Date())
+  }
+
+  public static function fetchVehicleSymbolFactor(symbol : int, ratingDate : Date) : double {
+    var effectiveDate = ratingDate != null ? ratingDate : new Date()
     var conn : Connection = null
     var stmt : PreparedStatement = null
     var rs : ResultSet = null
-    var factor = fetchSystemParameter("DEFAULT_FACTOR")
-    
+    var factor = DEFAULT_UNIT_FACTOR
+
     try {
       conn = getConnection()
-      stmt = conn.prepareStatement("SELECT factor FROM vehicle_symbol_factors WHERE symbol = ?")
-      stmt.setInt(1, symbol)
+      var sql = "SELECT factor FROM vehicle_symbol_factors " +
+          "WHERE symbol = ? " +
+          "AND effective_date <= ? " +
+          "AND (expiration_date IS NULL OR ? < expiration_date) " +
+          "ORDER BY effective_date DESC LIMIT 1"
+      stmt = conn.prepareStatement(sql)
+      stmt.setInt(SQL_SYMBOL_INDEX, symbol)
+      var sqlDate = new java.sql.Date(effectiveDate.Time)
+      stmt.setDate(SQL_SYMBOL_INDEX + 1, sqlDate)
+      stmt.setDate(SQL_SYMBOL_INDEX + 2, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         factor = rs.getDouble("factor")
+      } else {
+        factor = fetchSystemParameter(PARAM_DEFAULT_FACTOR, effectiveDate)
       }
     } catch (e : Exception) {
-      print("[DB ERROR] Failed to fetch vehicle symbol factor: " + e.getMessage())
+      print("[DB ERROR] Failed to fetch vehicle symbol factor for ${symbol} on ${effectiveDate}: " + e.getMessage())
     } finally {
-      if (rs != null) try { rs.close() } catch (e : Exception) {}
-      if (stmt != null) try { stmt.close() } catch (e : Exception) {}
-      if (conn != null) try { conn.close() } catch (e : Exception) {}
+      closeQuietly(rs, stmt, conn)
     }
-    
+
     return factor
   }
 
-  public static function isValidAge(age : int) : boolean {
-    var conn : Connection = null
-    var stmt : PreparedStatement = null
-    var rs : ResultSet = null
-    var valid = false
-    
-    try {
-      conn = getConnection()
-      stmt = conn.prepareStatement("SELECT COUNT(*) FROM age_factors WHERE ? BETWEEN min_age AND max_age")
-      stmt.setInt(1, age)
-      rs = stmt.executeQuery()
-      if (rs.next()) {
-        valid = rs.getInt(1) > 0
-      }
-    } catch (e : Exception) {
-      print("[DB ERROR] Failed to validate age range: " + e.getMessage())
-    } finally {
-      if (rs != null) try { rs.close() } catch (e : Exception) {}
-      if (stmt != null) try { stmt.close() } catch (e : Exception) {}
-      if (conn != null) try { conn.close() } catch (e : Exception) {}
-    }
-    
-    return valid
-  }
-
-  // --- Dynamic Business Logic Powered by Database Parameters ---
-
   public static function calculateTotalViolations(profile : PolicyRiskProfile) : int {
-    return profile.MajorViolations + profile.MinorViolations + profile.AtFaultAccidents
+    if (profile == null) {
+      return MIN_INCIDENT_COUNT
+    }
+    return profile.MajorViolations + profile.MinorViolations
   }
 
   public static function isHighRiskDriver(profile : PolicyRiskProfile) : boolean {
-    var ageFactor = fetchAgeFactor(profile.DriverAge)
-    var highRiskThreshold = fetchSystemParameter("HIGH_RISK_VIOLATION_THRESHOLD") as int
-    return ageFactor > fetchSystemParameter("DEFAULT_FACTOR") or profile.MajorViolations > 0 or calculateTotalViolations(profile) >= highRiskThreshold
+    if (profile == null) {
+      return false
+    }
+    var hasMajorViolation = profile.MajorViolations > MIN_INCIDENT_COUNT
+    var hasExcessAccidents = profile.AtFaultAccidents > HIGH_RISK_MAX_ACCIDENTS
+    var hasExcessViolations = calculateTotalViolations(profile) > HIGH_RISK_MAX_VIOLATIONS
+    var isUnderage = profile.DriverAge < HIGH_RISK_UNDERAGE_THRESHOLD
+    return hasMajorViolation or hasExcessAccidents or hasExcessViolations or isUnderage
   }
 
   public static function fetchUnderwritingTier(profile : PolicyRiskProfile) : String {
-    var preferredAgeThreshold = fetchSystemParameter("PREFERRED_AGE_THRESHOLD") as int
-    if (isHighRiskDriver(profile)) {
-      return "TIER_3_HIGH_RISK"
-    } else if (profile.DriverAge >= preferredAgeThreshold and calculateTotalViolations(profile) == 0) {
-      return "TIER_1_PREFERRED"
+    if (profile == null) {
+      return TIER_STANDARD
     }
-    return "TIER_2_STANDARD"
+    if (isHighRiskDriver(profile)) {
+      return TIER_HIGH_RISK
+    }
+    var isCleanRecord = calculateTotalViolations(profile) == MIN_INCIDENT_COUNT
+        and profile.AtFaultAccidents == MIN_INCIDENT_COUNT
+    if (isCleanRecord and profile.DriverAge >= PREFERRED_MIN_AGE) {
+      return TIER_PREFERRED
+    }
+    return TIER_STANDARD
+  }
+
+  public static function evaluateDynamicModifier(profile : PolicyRiskProfile) : double {
+    var tier = fetchUnderwritingTier(profile)
+    if (tier == TIER_HIGH_RISK) {
+      return fetchSystemParameter(PARAM_HIGH_RISK_SURCHARGE_MULTIPLIER)
+    } else if (tier == TIER_PREFERRED) {
+      return fetchSystemParameter(PARAM_PREFERRED_SURCHARGE_MULTIPLIER)
+    }
+    return fetchSystemParameter(PARAM_STANDARD_SURCHARGE_MULTIPLIER)
+  }
+
+  public static function evaluateDynamicModifier(
+      profile : PolicyRiskProfile,
+      modifierLogic : block(profile : PolicyRiskProfile) : BigDecimal
+  ) : BigDecimal {
+    if (modifierLogic != null) {
+      return modifierLogic(profile)
+    }
+    return BigDecimal.valueOf(evaluateDynamicModifier(profile))
   }
 
   public static function calculateActuarialRiskScore(profile : PolicyRiskProfile) : double {
-    var ageFactor = fetchAgeFactor(profile.DriverAge)
-    var vehicleFactor = fetchVehicleSymbolFactor(profile.VehicleSymbol)
-    var majorSurcharge = fetchViolationSurcharge("MAJOR")
-    var minorSurcharge = fetchViolationSurcharge("MINOR")
-    var normalizer = fetchSystemParameter("RISK_SCORE_NORMALIZER")
-    
-    var violationWeight = 1.0 + (profile.MajorViolations * (majorSurcharge / normalizer)) + (profile.MinorViolations * (minorSurcharge / normalizer))
-    return ageFactor * violationWeight * vehicleFactor
-  }
-
-  public static function evaluateDynamicModifier(profile : PolicyRiskProfile, modifierLogic : block(p : PolicyRiskProfile) : BigDecimal) : BigDecimal {
-    if (modifierLogic == null) {
-      var defaultMod = fetchSystemParameter("DEFAULT_FACTOR")
-      return new BigDecimal(defaultMod)
+    if (profile == null) {
+      return INITIAL_RISK_SCORE
     }
-    return modifierLogic(profile)
+    var ageComponent = profile.DriverAge < UNDERAGE_SCORE_THRESHOLD
+        ? (UNDERAGE_SCORE_THRESHOLD - profile.DriverAge) * UNDERAGE_SCORE_WEIGHT
+        : INITIAL_RISK_SCORE
+    var violationComponent = (profile.MajorViolations * MAJOR_VIOLATION_SCORE_WEIGHT)
+        + (profile.MinorViolations * MINOR_VIOLATION_SCORE_WEIGHT)
+    var accidentComponent = profile.AtFaultAccidents * ACCIDENT_SCORE_WEIGHT
+    var symbolComponent = profile.VehicleSymbol * VEHICLE_SYMBOL_SCORE_WEIGHT
+    return ageComponent + violationComponent + accidentComponent + symbolComponent
   }
 
   public static function isValidProfile(profile : PolicyRiskProfile) : boolean {
-    if (profile.TerritoryCode == null or profile.TerritoryCode.trim().isEmpty()) {
+    if (profile == null) {
       return false
     }
-    return isValidAge(profile.DriverAge)
+    var hasTerritory = profile.TerritoryCode != null and profile.TerritoryCode.trim().length > MIN_INCIDENT_COUNT
+    var hasValidAge = profile.DriverAge >= MIN_ELIGIBLE_DRIVER_AGE and profile.DriverAge <= MAX_ELIGIBLE_DRIVER_AGE
+    var hasValidSymbol = profile.VehicleSymbol >= MIN_VEHICLE_SYMBOL
+    var hasNonNegativeIncidents = profile.MajorViolations >= MIN_INCIDENT_COUNT
+        and profile.MinorViolations >= MIN_INCIDENT_COUNT
+        and profile.AtFaultAccidents >= MIN_INCIDENT_COUNT
+    return hasTerritory and hasValidAge and hasValidSymbol and hasNonNegativeIncidents
+  }
+
+  public static function persistQuote(profile : PolicyRiskProfile, finalPremium : double) {
+    var conn : Connection = null
+    var stmt : PreparedStatement = null
+
+    try {
+      conn = getConnection()
+      var sql = "INSERT INTO quote_audit_log (" +
+          "territory_code, driver_age, vehicle_symbol, major_violations, minor_violations, " +
+          "underwriting_tier, final_premium, created_at" +
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      stmt = conn.prepareStatement(sql)
+      stmt.setString(AUDIT_TERRITORY_INDEX, profile.TerritoryCode)
+      stmt.setInt(AUDIT_AGE_INDEX, profile.DriverAge)
+      stmt.setInt(AUDIT_SYMBOL_INDEX, profile.VehicleSymbol)
+      stmt.setInt(AUDIT_MAJOR_VIOLATIONS_INDEX, profile.MajorViolations)
+      stmt.setInt(AUDIT_MINOR_VIOLATIONS_INDEX, profile.MinorViolations)
+      stmt.setString(AUDIT_TIER_INDEX, profile.UnderwritingTier)
+      stmt.setDouble(AUDIT_PREMIUM_INDEX, finalPremium)
+      stmt.setTimestamp(AUDIT_CREATED_AT_INDEX, new Timestamp(System.currentTimeMillis()))
+      stmt.executeUpdate()
+      print("[DB] Quote persisted to PostgreSQL audit log.")
+    } catch (e : Exception) {
+      print("[DB ERROR] Failed to persist quote: " + e.getMessage())
+    } finally {
+      closeQuietly(null, stmt, conn)
+    }
+  }
+
+  private static function closeQuietly(rs : ResultSet, stmt : PreparedStatement, conn : Connection) {
+    if (rs != null) {
+      try { rs.close() } catch (e : Exception) {}
+    }
+    if (stmt != null) {
+      try { stmt.close() } catch (e : Exception) {}
+    }
+    if (conn != null) {
+      try { conn.close() } catch (e : Exception) {}
+    }
   }
 }
