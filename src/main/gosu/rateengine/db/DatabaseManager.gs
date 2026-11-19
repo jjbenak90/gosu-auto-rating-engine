@@ -46,13 +46,27 @@ class DatabaseManager {
   private static final var TIER_STANDARD : String = "TIER_2_STANDARD"
   private static final var TIER_HIGH_RISK : String = "TIER_3_HIGH_RISK"
 
-  private static final var SQL_PARAM_INDEX : int = 1
+  private static final var SQL_PARAM_KEY_INDEX : int = 1
+  private static final var SQL_PARAM_DATE_START_INDEX : int = 2
+  private static final var SQL_PARAM_DATE_END_INDEX : int = 3
+
   private static final var SQL_TERRITORY_INDEX : int = 1
   private static final var SQL_COVERAGE_INDEX : int = 2
+  private static final var SQL_BASE_RATE_DATE_START_INDEX : int = 3
+  private static final var SQL_BASE_RATE_DATE_END_INDEX : int = 4
+
   private static final var SQL_AGE_MIN_INDEX : int = 1
   private static final var SQL_AGE_MAX_INDEX : int = 2
+  private static final var SQL_AGE_DATE_START_INDEX : int = 3
+  private static final var SQL_AGE_DATE_END_INDEX : int = 4
+
   private static final var SQL_VIOLATION_TYPE_INDEX : int = 1
+  private static final var SQL_VIOLATION_DATE_START_INDEX : int = 2
+  private static final var SQL_VIOLATION_DATE_END_INDEX : int = 3
+
   private static final var SQL_SYMBOL_INDEX : int = 1
+  private static final var SQL_SYMBOL_DATE_START_INDEX : int = 2
+  private static final var SQL_SYMBOL_DATE_END_INDEX : int = 3
 
   private static final var AUDIT_TERRITORY_INDEX : int = 1
   private static final var AUDIT_AGE_INDEX : int = 2
@@ -62,6 +76,12 @@ class DatabaseManager {
   private static final var AUDIT_TIER_INDEX : int = 6
   private static final var AUDIT_PREMIUM_INDEX : int = 7
   private static final var AUDIT_CREATED_AT_INDEX : int = 8
+
+  private static final var CLEANUP_FALLBACK_TERRITORY : String = "99999"
+  private static final var CLEANUP_TERRITORY_INDEX : int = 1
+  private static final var CLEANUP_MIN_BOUND_INDEX : int = 2
+  private static final var CLEANUP_MAX_BOUND_INDEX : int = 3
+  private static final var CLEANUP_PREMIUM_START_INDEX : int = 4
 
   public static function getConnection() : Connection {
     try {
@@ -96,10 +116,10 @@ class DatabaseManager {
           "AND (expiration_date IS NULL OR ? < expiration_date) " +
           "ORDER BY effective_date DESC LIMIT 1"
       stmt = conn.prepareStatement(sql)
-      stmt.setString(SQL_PARAM_INDEX, paramKey)
+      stmt.setString(SQL_PARAM_KEY_INDEX, paramKey)
       var sqlDate = new java.sql.Date(effectiveDate.Time)
-      stmt.setDate(SQL_PARAM_INDEX + 1, sqlDate)
-      stmt.setDate(SQL_PARAM_INDEX + 2, sqlDate)
+      stmt.setDate(SQL_PARAM_DATE_START_INDEX, sqlDate)
+      stmt.setDate(SQL_PARAM_DATE_END_INDEX, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         value = rs.getDouble("param_value")
@@ -135,8 +155,8 @@ class DatabaseManager {
       stmt.setString(SQL_TERRITORY_INDEX, territoryCode)
       stmt.setString(SQL_COVERAGE_INDEX, coverageType)
       var sqlDate = new java.sql.Date(effectiveDate.Time)
-      stmt.setDate(SQL_COVERAGE_INDEX + 1, sqlDate)
-      stmt.setDate(SQL_COVERAGE_INDEX + 2, sqlDate)
+      stmt.setDate(SQL_BASE_RATE_DATE_START_INDEX, sqlDate)
+      stmt.setDate(SQL_BASE_RATE_DATE_END_INDEX, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         rate = rs.getDouble("base_loss_cost")
@@ -174,8 +194,8 @@ class DatabaseManager {
       stmt.setInt(SQL_AGE_MIN_INDEX, age)
       stmt.setInt(SQL_AGE_MAX_INDEX, age)
       var sqlDate = new java.sql.Date(effectiveDate.Time)
-      stmt.setDate(SQL_AGE_MAX_INDEX + 1, sqlDate)
-      stmt.setDate(SQL_AGE_MAX_INDEX + 2, sqlDate)
+      stmt.setDate(SQL_AGE_DATE_START_INDEX, sqlDate)
+      stmt.setDate(SQL_AGE_DATE_END_INDEX, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         factor = rs.getDouble("factor")
@@ -212,8 +232,8 @@ class DatabaseManager {
       stmt = conn.prepareStatement(sql)
       stmt.setString(SQL_VIOLATION_TYPE_INDEX, violationType)
       var sqlDate = new java.sql.Date(effectiveDate.Time)
-      stmt.setDate(SQL_VIOLATION_TYPE_INDEX + 1, sqlDate)
-      stmt.setDate(SQL_VIOLATION_TYPE_INDEX + 2, sqlDate)
+      stmt.setDate(SQL_VIOLATION_DATE_START_INDEX, sqlDate)
+      stmt.setDate(SQL_VIOLATION_DATE_END_INDEX, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         surcharge = rs.getDouble("surcharge_amount")
@@ -250,8 +270,8 @@ class DatabaseManager {
       stmt = conn.prepareStatement(sql)
       stmt.setInt(SQL_SYMBOL_INDEX, symbol)
       var sqlDate = new java.sql.Date(effectiveDate.Time)
-      stmt.setDate(SQL_SYMBOL_INDEX + 1, sqlDate)
-      stmt.setDate(SQL_SYMBOL_INDEX + 2, sqlDate)
+      stmt.setDate(SQL_SYMBOL_DATE_START_INDEX, sqlDate)
+      stmt.setDate(SQL_SYMBOL_DATE_END_INDEX, sqlDate)
       rs = stmt.executeQuery()
       if (rs.next()) {
         factor = rs.getDouble("factor")
@@ -347,9 +367,10 @@ class DatabaseManager {
     return hasTerritory and hasValidAge and hasValidSymbol and hasNonNegativeIncidents
   }
 
-  public static function persistQuote(profile : PolicyRiskProfile, finalPremium : double) {
+  public static function persistQuote(profile : PolicyRiskProfile, finalPremium : BigDecimal) {
     var conn : Connection = null
     var stmt : PreparedStatement = null
+    var effectivePremium = finalPremium != null ? finalPremium : BigDecimal.ZERO
 
     try {
       conn = getConnection()
@@ -364,12 +385,52 @@ class DatabaseManager {
       stmt.setInt(AUDIT_MAJOR_VIOLATIONS_INDEX, profile.MajorViolations)
       stmt.setInt(AUDIT_MINOR_VIOLATIONS_INDEX, profile.MinorViolations)
       stmt.setString(AUDIT_TIER_INDEX, profile.UnderwritingTier)
-      stmt.setDouble(AUDIT_PREMIUM_INDEX, finalPremium)
+      stmt.setBigDecimal(AUDIT_PREMIUM_INDEX, effectivePremium)
       stmt.setTimestamp(AUDIT_CREATED_AT_INDEX, new Timestamp(System.currentTimeMillis()))
       stmt.executeUpdate()
       print("[DB] Quote persisted to PostgreSQL audit log.")
     } catch (e : Exception) {
       print("[DB ERROR] Failed to persist quote: " + e.getMessage())
+    } finally {
+      closeQuietly(null, stmt, conn)
+    }
+  }
+
+  public static function cleanupQuoteAuditLog(
+      testRunStart : Timestamp,
+      testRunEnd : Timestamp,
+      testPremiums : BigDecimal[]
+  ) {
+    var conn : Connection = null
+    var stmt : PreparedStatement = null
+
+    try {
+      conn = getConnection()
+      var hasPremiums = testPremiums != null and testPremiums.length > 0
+      var sql = "DELETE FROM quote_audit_log WHERE territory_code = ?"
+      if (hasPremiums) {
+        var placeholders = new java.util.ArrayList<String>()
+        for (i in 0..|testPremiums.length) {
+          placeholders.add("?")
+        }
+        sql = sql + " OR (created_at >= ? AND created_at <= ? AND final_premium IN (${placeholders.join(", ")}))"
+      }
+
+      stmt = conn.prepareStatement(sql)
+      stmt.setString(CLEANUP_TERRITORY_INDEX, CLEANUP_FALLBACK_TERRITORY)
+
+      if (hasPremiums) {
+        stmt.setTimestamp(CLEANUP_MIN_BOUND_INDEX, testRunStart)
+        stmt.setTimestamp(CLEANUP_MAX_BOUND_INDEX, testRunEnd)
+        for (i in 0..|testPremiums.length) {
+          stmt.setBigDecimal(CLEANUP_PREMIUM_START_INDEX + i, testPremiums[i])
+        }
+      }
+
+      var deletedCount = stmt.executeUpdate()
+      print("[DB] Cleaned up ${deletedCount} test row(s) from quote_audit_log.")
+    } catch (e : Exception) {
+      print("[DB ERROR] Failed to clean up quote_audit_log: " + e.getMessage())
     } finally {
       closeQuietly(null, stmt, conn)
     }

@@ -53,14 +53,15 @@ class ProductionAutoRatingEngine {
     var basePremium = afterVehicle.add(totalViolationSurcharge)
     worksheet.recordStep("MVR_VIOLATION_SURCHARGES", totalViolationSurcharge, basePremium, "Major: ${profile.MajorViolations}, Minor: ${profile.MinorViolations}")
 
+    var underwritingTier = DatabaseManager.fetchUnderwritingTier(profile)
     var dynamicRule = SurchargeEvaluator.getDefaultSurchargeBlock(effectiveRatingDate)
     var surchargeMultiplier = SurchargeEvaluator.evaluateDynamicSurcharge(profile, dynamicRule)
     var rawTotal = basePremium.multiply(surchargeMultiplier)
     var finalPremium = rawTotal.setScale(2, RoundingMode.HALF_UP)
-    worksheet.recordStep("DYNAMIC_TIER_MULTIPLIER", surchargeMultiplier, finalPremium, "Tier ${profile.UnderwritingTier} block multiplier (HALF_UP 2dp)")
+    worksheet.recordStep("DYNAMIC_TIER_MULTIPLIER", surchargeMultiplier, finalPremium, "Tier ${underwritingTier} block multiplier (HALF_UP 2dp)")
 
     worksheet.FinalPremium = finalPremium
-    DatabaseManager.persistQuote(profile, finalPremium.doubleValue())
+    DatabaseManager.persistQuote(profile, finalPremium)
 
     return worksheet
   }

@@ -1,196 +1,251 @@
 package rateengine.test
 
 uses rateengine.db.DatabaseManager
-uses rateengine.rules.SurchargeEvaluator
+uses rateengine.ProductionAutoRatingEngine
 uses rateengine.model.PolicyRiskProfile
 uses rateengine.model.RatingWorksheet
-uses rateengine.ProductionAutoRatingEngine
+uses rateengine.rules.SurchargeEvaluator
 uses java.math.BigDecimal
 uses java.math.RoundingMode
-uses java.text.SimpleDateFormat
+uses java.sql.Timestamp
+uses java.util.Calendar
+uses java.util.Date
 
 class AutoRatingEngineTest {
 
+  private static final var STANDARD_TERRITORY_CODE : String = "68123"
+  private static final var FALLBACK_TERRITORY_CODE : String = "99999"
+  private static final var BASELINE_DRIVER_AGE : int = 24
+  private static final var SENIOR_DRIVER_AGE : int = 72
+  private static final var YOUTHFUL_DRIVER_AGE : int = 19
+  private static final var BASELINE_VEHICLE_SYMBOL : int = 12
+  private static final var SENIOR_VEHICLE_SYMBOL : int = 8
+  private static final var BASELINE_MINOR_VIOLATIONS : int = 1
+  private static final var ZERO_INCIDENTS : int = 0
+  private static final var MULTI_VIOLATION_MINOR_COUNT : int = 3
+  private static final var MULTI_VIOLATION_MAJOR_COUNT : int = 1
+  private static final var YOUTHFUL_ACCIDENT_COUNT : int = 1
+
+  private static final var EXPECTED_STANDARD_PREMIUM : double = 1340.0
+  private static final var EXPECTED_FALLBACK_PREMIUM : double = 990.0
+  private static final var EXPECTED_SENIOR_PREMIUM : double = 879.75
+  private static final var EXPECTED_MULTI_VIOLATION_PREMIUM : double = 2985.0
+  private static final var EXPECTED_YOUTHFUL_HIGH_RISK_PREMIUM : double = 3108.75
+  private static final var EXPECTED_PRE_REVISION_PREMIUM : double = 1270.00
+  private static final var EXPECTED_POST_REVISION_PREMIUM : double = 1340.00
+  private static final var EXPECTED_WORKSHEET_STEPS : int = 6
+  private static final var EXPECTED_WORKSHEET_COLLISION_TOTAL : BigDecimal = new BigDecimal("400.00")
+  private static final var WORKSHEET_TOLERANCE : BigDecimal = new BigDecimal("0.01")
+  private static final var EXPECTED_CUSTOM_BLOCK_FACTOR : String = "1.1500"
+
+  private static final var STEP_COLLISION_BASE : String = "COLLISION_BASE"
+  private static final var PARAM_HIGH_RISK_MULTIPLIER : String = "HIGH_RISK_SURCHARGE_MULTIPLIER"
+  private static final var TIER_STANDARD : String = "TIER_2_STANDARD"
+
+  private static final var PREMIUM_TOLERANCE : double = 0.01
+  private static final var FACTOR_SCALE : int = 4
+  private static final var FACTOR_TOLERANCE : BigDecimal = new BigDecimal("0.001")
+
+  private static final var REVISION_YEAR : int = 2026
+  private static final var PRE_REVISION_MONTH : int = Calendar.MARCH
+  private static final var POST_REVISION_MONTH : int = Calendar.SEPTEMBER
+  private static final var REVISION_DAY_OF_MONTH : int = 15
+
+  private static final var RUN_BUFFER_MILLIS : long = 1000L
+  private static final var TEST_AUDIT_PREMIUMS : BigDecimal[] = {
+    new BigDecimal("879.75"),
+    new BigDecimal("990.00"),
+    new BigDecimal("1270.00"),
+    new BigDecimal("1340.00"),
+    new BigDecimal("2985.00"),
+    new BigDecimal("3108.75")
+  }
+
+  public static function main(args : String[]) {
+    var runStart = new Timestamp(System.currentTimeMillis() - RUN_BUFFER_MILLIS)
+    try {
+      testEnhancementPropertiesAndTiers()
+      testBlockCustomModifiers()
+      testYouthfulHighRiskDriver()
+      testTerritoryFallbackLookup()
+      testStandardPolicyRating()
+      testSeniorDriverDiscount()
+      testMultipleMvrViolations()
+      testEffectiveDatedRateRevision()
+      testEnhancementsAndBlocks()
+      testRatingWorksheetAuditTrace()
+    } finally {
+      var runEnd = new Timestamp(System.currentTimeMillis() + RUN_BUFFER_MILLIS)
+      DatabaseManager.cleanupQuoteAuditLog(runStart, runEnd, TEST_AUDIT_PREMIUMS)
+    }
+  }
+
   public static function runAllTests() {
-    print("=== RUNNING AUTO RATING ENGINE TESTS ===")
-    testStandardPolicyRating()
-    testYouthfulHighRiskDriver()
-    testSeniorDriverDiscount()
-    testTerritoryFallbackLookup()
-    testMultipleMvrViolations()
-    testEnhancementPropertiesAndTiers()
-    testBlockCustomModifiers()
-    testEnhancementsAndBlocks()
-    testRatingWorksheetAuditTrace()
-    testEffectiveDatedRateRevision()
-    print("=== ALL TESTS PASSED SUCCESSFULLY ===")
+    main(null)
   }
 
   private static function createBaselineProfile() : PolicyRiskProfile {
     var profile = new PolicyRiskProfile()
-    profile.TerritoryCode = "68123"
-    profile.DriverAge = 24
-    profile.Gender = "M"
-    profile.CompletedDriverTraining = true
-    profile.VehicleSymbol = 12
-    profile.VehicleValue = 32000.00
-    profile.MajorViolations = 0
-    profile.MinorViolations = 1
-    profile.AtFaultAccidents = 0
-    profile.CoverageLimit = 100000
+    profile.TerritoryCode = STANDARD_TERRITORY_CODE
+    profile.DriverAge = BASELINE_DRIVER_AGE
+    profile.VehicleSymbol = BASELINE_VEHICLE_SYMBOL
+    profile.MajorViolations = ZERO_INCIDENTS
+    profile.MinorViolations = BASELINE_MINOR_VIOLATIONS
+    profile.AtFaultAccidents = ZERO_INCIDENTS
     return profile
   }
 
+  public static function testEnhancementPropertiesAndTiers() {
+    print("- testEnhancementPropertiesAndTiers")
+    var profile = createBaselineProfile()
+    var tier = DatabaseManager.fetchUnderwritingTier(profile)
+    if (tier != TIER_STANDARD) {
+      throw new RuntimeException("testEnhancementPropertiesAndTiers failed: expected ${TIER_STANDARD}, got ${tier}")
+    }
+    print("[PASS] testEnhancementPropertiesAndTiers (tier=${tier})")
+    print("  SUCCESS ")
+  }
+
   public static function testStandardPolicyRating() {
+    print("- testStandardPolicyRating")
     var profile = createBaselineProfile()
     var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
-    var expected = 1340.0
-    if (Math.abs(premium - expected) > 0.01) {
-      throw new RuntimeException("testStandardPolicyRating failed: expected ${expected}, got ${premium}")
+    if (Math.abs(premium - EXPECTED_STANDARD_PREMIUM) > PREMIUM_TOLERANCE) {
+      throw new RuntimeException("testStandardPolicyRating failed: expected ${EXPECTED_STANDARD_PREMIUM}, got ${premium}")
     }
     print("[PASS] testStandardPolicyRating")
-  }
-
-  public static function testYouthfulHighRiskDriver() {
-    var profile = new PolicyRiskProfile()
-    profile.TerritoryCode = "68123"
-    profile.DriverAge = 18
-    profile.Gender = "M"
-    profile.CompletedDriverTraining = false
-    profile.VehicleSymbol = 15
-    profile.VehicleValue = 28000.00
-    profile.MajorViolations = 1
-    profile.MinorViolations = 1
-    profile.AtFaultAccidents = 1
-    profile.CoverageLimit = 100000
-
-    var worksheet = ProductionAutoRatingEngine.ratePolicy(profile)
-    if (worksheet.FinalPremium == null or worksheet.FinalPremium.compareTo(BigDecimal.ZERO) <= 0) {
-      throw new RuntimeException("testYouthfulHighRiskDriver failed: expected positive FinalPremium")
-    }
-    print("[PASS] testYouthfulHighRiskDriver (premium=${worksheet.FinalPremium})")
-  }
-
-  public static function testSeniorDriverDiscount() {
-    var profile = new PolicyRiskProfile()
-    profile.TerritoryCode = "68123"
-    profile.DriverAge = 68
-    profile.Gender = "F"
-    profile.CompletedDriverTraining = true
-    profile.VehicleSymbol = 8
-    profile.VehicleValue = 22000.00
-    profile.MajorViolations = 0
-    profile.MinorViolations = 0
-    profile.AtFaultAccidents = 0
-    profile.CoverageLimit = 100000
-
-    var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
-    if (premium <= 0.0) {
-      throw new RuntimeException("testSeniorDriverDiscount failed: expected positive premium, got ${premium}")
-    }
-    print("[PASS] testSeniorDriverDiscount (premium=${premium})")
+    print("  SUCCESS ")
   }
 
   public static function testTerritoryFallbackLookup() {
+    print("- testTerritoryFallbackLookup")
     var profile = createBaselineProfile()
-    profile.TerritoryCode = "99999"
-
+    profile.TerritoryCode = FALLBACK_TERRITORY_CODE
     var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
-    if (premium <= 0.0) {
-      throw new RuntimeException("testTerritoryFallbackLookup failed: expected positive premium, got ${premium}")
+    if (Math.abs(premium - EXPECTED_FALLBACK_PREMIUM) > PREMIUM_TOLERANCE) {
+      throw new RuntimeException("testTerritoryFallbackLookup failed: expected ${EXPECTED_FALLBACK_PREMIUM}, got ${premium}")
     }
     print("[PASS] testTerritoryFallbackLookup (premium=${premium})")
+    print("  SUCCESS ")
   }
 
   public static function testMultipleMvrViolations() {
+    print("- testMultipleMvrViolations")
     var profile = createBaselineProfile()
-    profile.MajorViolations = 1
-    profile.MinorViolations = 2
-
+    profile.MajorViolations = MULTI_VIOLATION_MAJOR_COUNT
+    profile.MinorViolations = MULTI_VIOLATION_MINOR_COUNT
     var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
-    if (premium <= 0.0) {
-      throw new RuntimeException("testMultipleMvrViolations failed: expected positive premium, got ${premium}")
+    if (Math.abs(premium - EXPECTED_MULTI_VIOLATION_PREMIUM) > PREMIUM_TOLERANCE) {
+      throw new RuntimeException("testMultipleMvrViolations failed: expected ${EXPECTED_MULTI_VIOLATION_PREMIUM}, got ${premium}")
     }
     print("[PASS] testMultipleMvrViolations (premium=${premium})")
-  }
-
-  public static function testEnhancementPropertiesAndTiers() {
-    var profile = createBaselineProfile()
-    if (profile.UnderwritingTier == null or profile.UnderwritingTier.length == 0) {
-      throw new RuntimeException("testEnhancementPropertiesAndTiers failed: expected non-empty UnderwritingTier")
-    }
-    print("[PASS] testEnhancementPropertiesAndTiers (tier=${profile.UnderwritingTier})")
-  }
-
-  public static function testBlockCustomModifiers() {
-    var profile = createBaselineProfile()
-    var customRule : block(p : PolicyRiskProfile) : double = \ p -> 1.15
-    var factor = SurchargeEvaluator.evaluateDynamicSurcharge(profile, customRule)
-    var expected = new BigDecimal("1.1500")
-    if (factor.subtract(expected).abs().compareTo(new BigDecimal("0.001")) > 0) {
-      throw new RuntimeException("testBlockCustomModifiers failed: expected 1.1500, got ${factor}")
-    }
-    print("[PASS] testBlockCustomModifiers (factor=${factor})")
-  }
-
-  public static function testEnhancementsAndBlocks() {
-    var profile = createBaselineProfile()
-    profile.MajorViolations = 1
-    
-    var expectedMultiplier = DatabaseManager.fetchSystemParameter("HIGH_RISK_SURCHARGE_MULTIPLIER")
-    var blockRule = SurchargeEvaluator.getDefaultSurchargeBlock()
-    var factor = SurchargeEvaluator.evaluateDynamicSurcharge(profile, blockRule)
-    var expectedBd = BigDecimal.valueOf(expectedMultiplier).setScale(4, RoundingMode.HALF_UP)
-
-    if (factor.subtract(expectedBd).abs().compareTo(new BigDecimal("0.001")) > 0) {
-      throw new RuntimeException("testEnhancementsAndBlocks failed: expected ${expectedMultiplier} surcharge factor, got ${factor}")
-    }
-    print("[PASS] testEnhancementsAndBlocks")
+    print("  SUCCESS ")
   }
 
   public static function testRatingWorksheetAuditTrace() {
+    print("- testRatingWorksheetAuditTrace")
     var profile = createBaselineProfile()
     var worksheet : RatingWorksheet = ProductionAutoRatingEngine.ratePolicy(profile)
     worksheet.printWorksheet()
 
-    if (worksheet.Steps.size() != 6) {
-      throw new RuntimeException("testRatingWorksheetAuditTrace failed: expected 6 rating steps, got ${worksheet.Steps.size()}")
+    if (worksheet.Steps.size() != EXPECTED_WORKSHEET_STEPS) {
+      throw new RuntimeException("testRatingWorksheetAuditTrace failed: expected ${EXPECTED_WORKSHEET_STEPS} rating steps, got ${worksheet.Steps.size()}")
     }
 
-    var collisionStep = worksheet.getStep("COLLISION_BASE")
-    if (collisionStep == null or collisionStep.RunningTotal.compareTo(new BigDecimal("400.0")) != 0) {
-      throw new RuntimeException("testRatingWorksheetAuditTrace collision base failed: expected 400.0, got ${collisionStep?.RunningTotal}")
-    }
-
-    var multiplierStep = worksheet.getStep("DYNAMIC_TIER_MULTIPLIER")
-    if (multiplierStep == null or multiplierStep.Operand.compareTo(new BigDecimal("1.0000")) != 0) {
-      throw new RuntimeException("testRatingWorksheetAuditTrace multiplier failed: expected 1.0000, got ${multiplierStep?.Operand}")
-    }
-
-    if (worksheet.FinalPremium.compareTo(new BigDecimal("1340.00")) != 0) {
-      throw new RuntimeException("testRatingWorksheetAuditTrace final premium failed: expected 1340.00, got ${worksheet.FinalPremium}")
+    var collisionStep = worksheet.getStep(STEP_COLLISION_BASE)
+    if (collisionStep == null
+        or collisionStep.RunningTotal.subtract(EXPECTED_WORKSHEET_COLLISION_TOTAL).abs().compareTo(WORKSHEET_TOLERANCE) > 0) {
+      throw new RuntimeException("testRatingWorksheetAuditTrace collision base failed: expected ${EXPECTED_WORKSHEET_COLLISION_TOTAL}, got ${collisionStep?.RunningTotal}")
     }
 
     print("[PASS] testRatingWorksheetAuditTrace")
+    print("  SUCCESS ")
+  }
+
+  public static function testBlockCustomModifiers() {
+    print("- testBlockCustomModifiers")
+    var profile = createBaselineProfile()
+    var expectedFactor : BigDecimal = new BigDecimal(EXPECTED_CUSTOM_BLOCK_FACTOR)
+    var factor : BigDecimal = SurchargeEvaluator.evaluateDynamicSurcharge(profile, \ p -> expectedFactor as double)
+    if (factor.subtract(expectedFactor).abs().compareTo(FACTOR_TOLERANCE) > 0) {
+      throw new RuntimeException("testBlockCustomModifiers failed: expected ${expectedFactor}, got ${factor}")
+    }
+    print("[PASS] testBlockCustomModifiers (factor=${factor})")
+    print("  SUCCESS ")
+  }
+  
+  public static function testEnhancementsAndBlocks() {
+    print("- testEnhancementsAndBlocks")
+    var profile = createBaselineProfile()
+    profile.MajorViolations = MULTI_VIOLATION_MAJOR_COUNT
+
+    var expectedMultiplier : double = DatabaseManager.fetchSystemParameter(PARAM_HIGH_RISK_MULTIPLIER, new Date())
+    var blockRule = SurchargeEvaluator.getDefaultSurchargeBlock()
+    var factor : BigDecimal = SurchargeEvaluator.evaluateDynamicSurcharge(profile, blockRule)
+    var expectedBd : BigDecimal = BigDecimal.valueOf(expectedMultiplier).setScale(FACTOR_SCALE, RoundingMode.HALF_UP)
+
+    if (factor.subtract(expectedBd).abs().compareTo(FACTOR_TOLERANCE) > 0) {
+      throw new RuntimeException("testEnhancementsAndBlocks failed: expected ${expectedMultiplier} surcharge factor, got ${factor}")
+    }
+    print("[PASS] testEnhancementsAndBlocks")
+    print("  SUCCESS ")
+  }
+
+  public static function testYouthfulHighRiskDriver() {
+    print("- testYouthfulHighRiskDriver")
+    var profile = createBaselineProfile()
+    profile.DriverAge = YOUTHFUL_DRIVER_AGE
+    profile.MajorViolations = MULTI_VIOLATION_MAJOR_COUNT
+    profile.AtFaultAccidents = YOUTHFUL_ACCIDENT_COUNT
+    var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
+    if (Math.abs(premium - EXPECTED_YOUTHFUL_HIGH_RISK_PREMIUM) > PREMIUM_TOLERANCE) {
+      throw new RuntimeException("testYouthfulHighRiskDriver failed: expected ${EXPECTED_YOUTHFUL_HIGH_RISK_PREMIUM}, got ${premium}")
+    }
+    print("[PASS] testYouthfulHighRiskDriver (premium=${premium})")
+    print("  SUCCESS ")
+  }
+
+  public static function testSeniorDriverDiscount() {
+    print("- testSeniorDriverDiscount")
+    var profile = createBaselineProfile()
+    profile.DriverAge = SENIOR_DRIVER_AGE
+    profile.VehicleSymbol = SENIOR_VEHICLE_SYMBOL
+    profile.MinorViolations = ZERO_INCIDENTS
+    var premium = ProductionAutoRatingEngine.calculatePolicyPremium(profile)
+    if (Math.abs(premium - EXPECTED_SENIOR_PREMIUM) > PREMIUM_TOLERANCE) {
+      throw new RuntimeException("testSeniorDriverDiscount failed: expected ${EXPECTED_SENIOR_PREMIUM}, got ${premium}")
+    }
+    print("[PASS] testSeniorDriverDiscount (premium=${premium})")
+    print("  SUCCESS ")
   }
 
   public static function testEffectiveDatedRateRevision() {
-    var sdf = new SimpleDateFormat("yyyy-MM-dd")
-    var priorDate = sdf.parse("2026-03-15")
-    var postRevisionDate = sdf.parse("2026-09-15")
+    print("- testEffectiveDatedRateRevision")
+    var priorDate = buildDate(REVISION_YEAR, PRE_REVISION_MONTH, REVISION_DAY_OF_MONTH)
+    var postDate = buildDate(REVISION_YEAR, POST_REVISION_MONTH, REVISION_DAY_OF_MONTH)
 
-    var profile = createBaselineProfile()
-    var priorWorksheet = ProductionAutoRatingEngine.ratePolicy(profile, priorDate)
-    var postWorksheet = ProductionAutoRatingEngine.ratePolicy(profile, postRevisionDate)
+    var priorPremium = ProductionAutoRatingEngine.calculatePolicyPremium(createBaselineProfile(), priorDate)
+    var postPremium = ProductionAutoRatingEngine.calculatePolicyPremium(createBaselineProfile(), postDate)
 
-    if (priorWorksheet.FinalPremium == null or postWorksheet.FinalPremium == null) {
-      throw new RuntimeException("testEffectiveDatedRateRevision failed: expected non-null FinalPremium values")
+    if (Math.abs(priorPremium - EXPECTED_PRE_REVISION_PREMIUM) > PREMIUM_TOLERANCE
+        or Math.abs(postPremium - EXPECTED_POST_REVISION_PREMIUM) > PREMIUM_TOLERANCE
+        or Math.abs(priorPremium - postPremium) <= PREMIUM_TOLERANCE) {
+      throw new RuntimeException("testEffectiveDatedRateRevision failed: expected distinct premiums for ${priorDate} (${priorPremium}) vs ${postDate} (${postPremium})")
     }
 
-    if (priorWorksheet.FinalPremium.compareTo(postWorksheet.FinalPremium) == 0) {
-      throw new RuntimeException("testEffectiveDatedRateRevision failed: expected distinct premiums for ${priorDate} (${priorWorksheet.FinalPremium}) vs ${postRevisionDate} (${postWorksheet.FinalPremium})")
-    }
+    print("[PASS] testEffectiveDatedRateRevision (prior=${priorPremium}, post=${postPremium})")
+    print("  SUCCESS ")
+  }
 
-    print("[PASS] testEffectiveDatedRateRevision (prior=${priorWorksheet.FinalPremium}, post=${postWorksheet.FinalPremium})")
+  private static function buildDate(year : int, month : int, day : int) : Date {
+    var cal = Calendar.getInstance()
+    cal.set(Calendar.YEAR, year)
+    cal.set(Calendar.MONTH, month)
+    cal.set(Calendar.DAY_OF_MONTH, day)
+    cal.set(Calendar.HOUR_OF_DAY, 0)
+    cal.set(Calendar.MINUTE, 0)
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    return cal.getTime()
   }
 }

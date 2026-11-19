@@ -2,16 +2,17 @@
   "Title": "Gosu Experiment",
   "Version": 2,
   "Name": "GOSU-auto-rating-engine",
-  "ActiveTab": "src/main/gosu/scratch/TestDB.gsp",
+  "ActiveTab": "src/main/gosu/rateengine/test/AutoRatingEngineTest.gs",
   "Tabs": [
     "src/main/gosu/scratch/RunMe.gsp",
     "src/main/gosu/rateengine/model/PolicyRiskProfile.gs",
     "src/main/gosu/rateengine/ProductionAutoRatingEngine.gs",
     "src/main/gosu/rateengine/test/AutoRatingEngineTest.gs",
     "src/main/gosu/scratch/RunTests.gsp",
-    "src/main/gosu/rateengine/db/DatabaseManager.gs",
     "src/main/gosu/scratch/TestDB.gsp",
-    "src/main/gosu/rateengine/model/PolicyRiskProfileEnhancement.gsx"
+    "src/main/gosu/rateengine/model/PolicyRiskProfileEnhancement.gsx",
+    "src/main/gosu/rateengine/db/DatabaseManager.gs",
+    "src/main/gosu/rateengine/rules/SurchargeEvaluator.gs"
   ],
   "SourcePath": [
     "src/main/gosu",
