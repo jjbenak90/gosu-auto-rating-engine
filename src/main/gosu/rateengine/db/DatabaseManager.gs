@@ -13,9 +13,17 @@ uses java.util.Properties
 
 class DatabaseManager {
 
-  private static final var DB_URL : String = "jdbc:postgresql://localhost:5432/auto_rating_db"
-  private static final var DB_USER : String = "postgres"
-  private static final var DB_PASSWORD : String = "enchanter90!"
+  private static final var DEFAULT_DB_URL : String = "jdbc:postgresql://localhost:5432/auto_rating_db"
+  private static final var DEFAULT_DB_USER : String = "postgres"
+  private static final var DEFAULT_DB_PASSWORD : String = "enchanter90!"
+
+  private static final var PROP_DB_URL : String = "rating.db.url"
+  private static final var PROP_DB_USER : String = "rating.db.user"
+  private static final var PROP_DB_PASSWORD : String = "rating.db.password"
+
+  private static final var ENV_DB_URL : String = "RATING_DB_URL"
+  private static final var ENV_DB_USER : String = "RATING_DB_USER"
+  private static final var ENV_DB_PASSWORD : String = "RATING_DB_PASSWORD"
 
   private static final var PARAM_DEFAULT_BASE_RATE : String = "DEFAULT_BASE_RATE"
   private static final var PARAM_DEFAULT_FACTOR : String = "DEFAULT_FACTOR"
@@ -83,17 +91,33 @@ class DatabaseManager {
   private static final var CLEANUP_MAX_BOUND_INDEX : int = 3
   private static final var CLEANUP_PREMIUM_START_INDEX : int = 4
 
+  private static function resolveConfig(propKey : String, envKey : String, fallback : String) : String {
+    var sysProp = System.getProperty(propKey)
+    if (sysProp != null and sysProp.trim().length > 0) {
+      return sysProp.trim()
+    }
+    var envVal = System.getenv(envKey)
+    if (envVal != null and envVal.trim().length > 0) {
+      return envVal.trim()
+    }
+    return fallback
+  }
+
   public static function getConnection() : Connection {
+    var url = resolveConfig(PROP_DB_URL, ENV_DB_URL, DEFAULT_DB_URL)
+    var user = resolveConfig(PROP_DB_USER, ENV_DB_USER, DEFAULT_DB_USER)
+    var password = resolveConfig(PROP_DB_PASSWORD, ENV_DB_PASSWORD, DEFAULT_DB_PASSWORD)
+
     try {
       Class.forName("org.postgresql.Driver")
       var props = new Properties()
-      props.setProperty("user", DB_USER)
-      props.setProperty("password", DB_PASSWORD)
-      return DriverManager.getConnection(DB_URL, props)
+      props.setProperty("user", user)
+      props.setProperty("password", password)
+      return DriverManager.getConnection(url, props)
     } catch (e : ClassNotFoundException) {
       throw new RuntimeException("PostgreSQL JDBC Driver not found on classpath", e)
     } catch (e : SQLException) {
-      throw new RuntimeException("Failed to connect to PostgreSQL database at ${DB_URL}", e)
+      throw new RuntimeException("Failed to connect to PostgreSQL database at ${url}", e)
     }
   }
 

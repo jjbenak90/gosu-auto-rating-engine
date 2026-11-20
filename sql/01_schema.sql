@@ -1,5 +1,5 @@
 -- Schema for auto_rating_db (PostgreSQL)
--- Matches DatabaseManager.gs and TestDB.gsp queries
+-- Matches DatabaseManager.gs and scratch/TestDB.gsp queries
 
 CREATE TABLE IF NOT EXISTS system_parameters (
   id BIGSERIAL PRIMARY KEY,
