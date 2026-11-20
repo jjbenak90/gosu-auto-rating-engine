@@ -20,6 +20,11 @@ A few Gosu-specific capabilities used in this codebase that stand out for insura
 * **Gosu Enhancements (`.gsx`):** `PolicyRiskProfileEnhancement.gsx` attaches domain properties and methods directly onto `PolicyRiskProfile` (`TotalViolations`, `IsHighRiskDriver`, `UnderwritingTier`, `ActuarialRiskScore`, `validateProfileData()`, and `evaluateCustomModifier(...)`) without subclassing or cluttering the data model.
 * **Block Closures as Rules (`block(...)`):** `SurchargeEvaluator.gs` builds and evaluates block closures (`\ profile : PolicyRiskProfile -> ...`) for default tier multipliers and custom modifier overrides, letting rating rules compose cleanly with `BigDecimal` scaling (`RoundingMode.HALF_UP`).
 * **Transparent Step-by-Step Worksheet Tracing:** `RatingWorksheet` and `RatingStep` preserve an auditable sequence of factors, surcharges, and running totals all the way to the final rounded `BigDecimal` premium.
+* **Exact Decimal Precision (`BigDecimal` vs. `double`):** All rate factors, surcharges, and premiums use `BigDecimal` rather than `double` to avoid binary floating-point approximation errors:
+    * **Exact base-10 math:** Prevents binary rounding drift (e.g., `0.1 + 0.2 != 0.30000000000000004`) across chained rating multipliers.
+    * **Regulatory compliance:** Allows explicit rounding control (`RoundingMode.HALF_UP` to 2 decimal places) at required steps to match filed actuarial rules to the cent.
+    * **Clean reconciliation:** Ensures installment splits, pro-rata adjustments, and `quote_audit_log` records balance without penny discrepancies.
+
 
 ## Test Suite (`AutoRatingEngineTest.gs`)
 
